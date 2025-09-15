@@ -75,6 +75,10 @@ class DatabaseConnection:
                 if 'TimeString' in df.columns and len([col for col in df.columns if col == 'TimeString']) > 1:
                     df = df.loc[:, ~df.columns.duplicated()]
             
+            # Ensure TimeString is properly formatted as datetime
+            if 'TimeString' in df.columns:
+                df['TimeString'] = pd.to_datetime(df['TimeString'], dayfirst=True)  # Added dayfirst=True
+            
             return df
         except SQLAlchemyError as e:
             print(f"Error reading table [{table_name}]: {e}")
