@@ -6,19 +6,22 @@ class WelcomeWindow:
     def __init__(self, on_connect_callback):
         self.on_connect_callback = on_connect_callback
         self.window = None
-        self.save_credentials_var = None
-        self.auth_type_var = None
-        self.time_threshold_var = None  # ADD THIS
-        self.expected_frequency_var = None  # ADD THIS
+        # Remove variable initialization from here
         
     def show(self):
         self.window = tk.Tk()
         self.window.title("Production Cycle Analyzer - Database Connection")
-        self.window.geometry("500x500")  # Increased height to accommodate new fields
+        self.window.geometry("500x500")
+        
+        # Initialize Tkinter variables AFTER creating the root window
+        self.save_credentials_var = tk.BooleanVar(value=False)
+        self.auth_type_var = tk.StringVar(value=AuthenticationType.SQL_SERVER.value)
+        self.time_threshold_var = tk.StringVar(value="15")  # DEFAULT TO 15 MINUTES
+        self.expected_frequency_var = tk.StringVar(value="5")  # DEFAULT TO 5 MINUTES
+        self.migrate_var = tk.BooleanVar(value=True)  # Add migration option
         
         tk.Label(self.window, text="Database Connection", font=("Arial", 16)).pack(pady=10)
         
-        # ADD ANALYSIS CONFIGURATION SECTION
         # Analysis configuration frame
         config_frame = tk.LabelFrame(self.window, text="Analysis Configuration", padx=10, pady=10)
         config_frame.pack(pady=10, padx=20, fill='x')
@@ -28,7 +31,6 @@ class WelcomeWindow:
         threshold_frame.pack(pady=5, fill='x')
         
         tk.Label(threshold_frame, text="Cycle Threshold (minutes):", width=20, anchor='w').pack(side='left')
-        self.time_threshold_var = tk.StringVar(value="15")  # DEFAULT TO 15 MINUTES
         threshold_entry = tk.Entry(threshold_frame, textvariable=self.time_threshold_var, width=10)
         threshold_entry.pack(side='right')
         
@@ -37,16 +39,24 @@ class WelcomeWindow:
         frequency_frame.pack(pady=5, fill='x')
         
         tk.Label(frequency_frame, text="Expected Frequency (minutes):", width=20, anchor='w').pack(side='left')
-        self.expected_frequency_var = tk.StringVar(value="5")  # DEFAULT TO 5 MINUTES
         frequency_entry = tk.Entry(frequency_frame, textvariable=self.expected_frequency_var, width=10)
         frequency_entry.pack(side='right')
+        
+        # Migration checkbox
+        migrate_frame = tk.Frame(self.window)
+        migrate_frame.pack(pady=10, fill='x', padx=20)
+        
+        tk.Label(migrate_frame, text="Database Migration:", width=15, anchor='w').pack(side='left')
+        tk.Checkbutton(migrate_frame, text="Convert TimeString to DATETIME", 
+                      variable=self.migrate_var, font=("Arial", 10)).pack(side='left')
+        tk.Label(migrate_frame, text="(Required for proper analysis)", 
+                fg="gray", font=("Arial", 8)).pack(side='left', padx=5)
         
         # Authentication type selection
         auth_frame = tk.Frame(self.window)
         auth_frame.pack(pady=5, fill='x', padx=20)
         
         tk.Label(auth_frame, text="Authentication:", width=15, anchor='w').pack(side='left')
-        self.auth_type_var = tk.StringVar(value=AuthenticationType.SQL_SERVER.value)
         auth_combo = ttk.Combobox(auth_frame, textvariable=self.auth_type_var, 
                                  values=[auth.value for auth in AuthenticationType], state="readonly")
         auth_combo.pack(side='right', fill='x', expand=True)
@@ -54,11 +64,11 @@ class WelcomeWindow:
         
         # Input fields
         fields = [
-            ("Server/Host", "localhost"),
+            ("Server/Host", "DESKTOP-L16QENB"),
             ("Port", "1433"),
             ("Username", "sa"),
             ("Password", "", True),  # Password field
-            ("Database Name", "production_db")
+            ("Database Name", "BIOP_AGOS_2025")
         ]
         
         self.entries = {}
@@ -76,7 +86,6 @@ class WelcomeWindow:
         self.toggle_auth_fields()
         
         # Save credentials checkbox
-        self.save_credentials_var = tk.BooleanVar()
         tk.Checkbutton(self.window, text="Save credentials", 
                       variable=self.save_credentials_var).pack(pady=5)
         
@@ -130,8 +139,8 @@ class WelcomeWindow:
                 time_column="TimeString"
             )
             
-            # Pass both configs to the callback
-            success = self.on_connect_callback(db_config, analysis_config)
+            # Pass migration flag to callback
+            success = self.on_connect_callback(db_config, analysis_config, self.migrate_var.get())
             if success:
                 self.window.destroy()
             else:

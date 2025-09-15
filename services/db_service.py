@@ -2,21 +2,60 @@ from infrastructure.database import DatabaseConnection
 from infrastructure.repositories import DatabaseRepository
 from core.models import DatabaseConfig, AuthenticationType
 from services.table_service import TableService
+from services.migration_service_fixed import MigrationService  
 import pandas as pd
+from typing import Dict
+
+from infrastructure.database import DatabaseConnection
+from infrastructure.repositories import DatabaseRepository
+from core.models import DatabaseConfig, AuthenticationType
+from services.table_service import TableService
+from services.migration_service_fixed import MigrationService  # Use the fixed service
 
 class DatabaseService:
     def __init__(self):
         self.connection = DatabaseConnection()
         self.repository = None
         self.table_service = TableService()
+        self.migration_service = None
     
     def connect_to_database(self, config: DatabaseConfig) -> bool:
         success = self.connection.connect(config)
         
         if success:
             self.repository = DatabaseRepository(self.connection)
+            self.migration_service = MigrationService(self.connection)
         
         return success
+    
+    def migrate_database_schema(self) -> Dict[str, bool]:
+        """Migrate all TimeString columns to datetime type"""
+        if self.migration_service:
+            print("🚀 Starting database migration...")
+            print("Step 1: Converting TimeString columns to DATETIME")
+            migration_results = self.migration_service.migrate_timestring_to_datetime()
+            
+            print("\nStep 2: Creating indexes for better performance")
+            index_results = self.migration_service.create_indexes_on_timestring()
+            
+            print("\nStep 3: Ensuring physical ordering by TimeString")
+            ordering_results = self.migration_service.ensure_tables_ordered()
+            
+            # Count successful migrations
+            successful_migrations = sum(1 for result in migration_results.values() if result)
+            total_tables = len(migration_results)
+            
+            print(f"\nMigration Summary:")
+            print(f"✅ Successful migrations: {successful_migrations}/{total_tables}")
+            print(f"✅ Indexes created/verified: {sum(1 for result in index_results.values() if result)}/{total_tables}")
+            print(f"✅ Tables physically ordered: {sum(1 for result in ordering_results.values() if result)}/{total_tables}")
+            
+            return {
+                "migration": migration_results,
+                "indexing": index_results,
+                "ordering": ordering_results
+            }
+        return {}
     
     def get_available_tables(self) -> list:
         if self.repository:

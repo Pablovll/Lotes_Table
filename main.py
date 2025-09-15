@@ -19,10 +19,22 @@ class ProductionCycleAnalyzerApp:
         welcome = WelcomeWindow(self.on_database_connect)
         welcome.show()
     
-    def on_database_connect(self, db_config: DatabaseConfig, analysis_config: AnalysisConfig) -> bool:
+    def on_database_connect(self, db_config: DatabaseConfig, analysis_config: AnalysisConfig, should_migrate: bool) -> bool:
         success = self.db_service.connect_to_database(db_config)
         if success:
-            # SINGLE SOURCE OF TRUTH: Only main.py creates AnalysisService with config
+            # Perform migration if requested
+            if should_migrate:
+                migration_results = self.db_service.migrate_database_schema()
+                # Show migration results
+                successful_migrations = sum(1 for result in migration_results.get('migration', {}).values() if result)
+                total_tables = len(migration_results.get('migration', {}))
+                
+                if successful_migrations > 0:
+                    print(f"✅ Successfully migrated {successful_migrations}/{total_tables} tables")
+                else:
+                    print("⚠️ No migrations were performed")
+            
+            # Initialize analysis service
             self.analysis_service = AnalysisService(analysis_config)
             self.show_main_window()
         return success
@@ -45,8 +57,7 @@ class ProductionCycleAnalyzerApp:
         restart = input("Would you like to restart? (y/n): ")
         if restart.lower() == 'y':
             self.run()
-            
+
 if __name__ == "__main__":
     app = ProductionCycleAnalyzerApp()
     app.run()
-
