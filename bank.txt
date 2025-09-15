@@ -1,0 +1,8 @@
+{
+  "db_credentials": {
+      "server": "DESKTOP-L16QENB",
+      "database": "THISONE",BIOP_AGOS_2025
+      "trusted_connection": true,
+      "port": "1433"
+  }
+}

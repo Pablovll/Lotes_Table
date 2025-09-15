@@ -1,0 +1,52 @@
+import tkinter as tk
+from app.welcome_window import WelcomeWindow
+from app.main_window import MainWindow
+from app.results_window import ResultsWindow
+from services.db_service import DatabaseService
+from services.analysis_service import AnalysisService
+from core.models import DatabaseConfig, AnalysisConfig
+
+class ProductionCycleAnalyzerApp:
+    def __init__(self):
+        self.db_service = DatabaseService()
+        self.analysis_service = None
+        self.current_window = None
+        
+    def run(self):
+        self.show_welcome_window()
+    
+    def show_welcome_window(self):
+        welcome = WelcomeWindow(self.on_database_connect)
+        welcome.show()
+    
+    def on_database_connect(self, db_config: DatabaseConfig, analysis_config: AnalysisConfig) -> bool:
+        success = self.db_service.connect_to_database(db_config)
+        if success:
+            # SINGLE SOURCE OF TRUTH: Only main.py creates AnalysisService with config
+            self.analysis_service = AnalysisService(analysis_config)
+            self.show_main_window()
+        return success
+    
+    def show_main_window(self):
+        main = MainWindow(self.db_service, self.on_analyze_tables)
+        main.show()
+    
+    def on_analyze_tables(self, table_data):
+        analysis_results = self.analysis_service.analyze_tables(table_data)
+        self.show_results_window(analysis_results)
+    
+    def show_results_window(self, analysis_results):
+        results = ResultsWindow(self.analysis_service, self.db_service, self.on_complete)
+        results.show(analysis_results)
+    
+    def on_complete(self):
+        print("Analysis completed successfully!")
+        # Option to restart or exit
+        restart = input("Would you like to restart? (y/n): ")
+        if restart.lower() == 'y':
+            self.run()
+            
+if __name__ == "__main__":
+    app = ProductionCycleAnalyzerApp()
+    app.run()
+
