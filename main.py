@@ -1,14 +1,26 @@
+# main.py
 import tkinter as tk
 from app.welcome_window import WelcomeWindow
 from app.main_window import MainWindow
 from app.results_window import ResultsWindow
-from services.db_service import DatabaseService
+from infrastructure.db_service import DatabaseService
+from infrastructure.database import DatabaseConnection
+from infrastructure.repositories import DatabaseRepository
+from infrastructure.table_service import TableService
+from infrastructure.migration_service_fixed import MigrationService
 from services.analysis_service import AnalysisService
 from core.models import DatabaseConfig, AnalysisConfig
 
 class ProductionCycleAnalyzerApp:
     def __init__(self):
-        self.db_service = DatabaseService()
+        # Initialize infrastructure components
+        db_connection = DatabaseConnection()
+        repository = DatabaseRepository(db_connection)
+        table_service = TableService()
+        migration_service = MigrationService(db_connection)
+        
+        # Initialize services with dependency injection
+        self.db_service = DatabaseService(db_connection, repository, table_service, migration_service)
         self.analysis_service = None
         self.current_window = None
         

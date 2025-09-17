@@ -205,7 +205,7 @@ class MainWindow:
         
         # Show datetime conversion info
         if 'TimeString' in df.columns:
-            from services.table_service import TableService
+            from infrastructure.table_service import TableService
             ts = TableService()
             conversion_info = ts.verify_datetime_conversion(df)
             

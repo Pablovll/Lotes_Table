@@ -1,7 +1,9 @@
+# services/analysis_service.py
 from core.cycle_analyzer import CycleAnalyzer
 from core.models import TableResult, AnalysisConfig
 import pandas as pd
 from datetime import timedelta
+from typing import Dict
 
 class AnalysisService:
     def __init__(self, config: AnalysisConfig):
@@ -187,6 +189,49 @@ class AnalysisService:
         
         return lotedata_df[[self.config.time_column, 'CycleID']]
     
+    def generate_lotedata_detailed_mapping(self, reference_table_name: str, reference_df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Generate detailed LOTE_DATA table with original structure but VarValue replaced by CycleID
+        using TimeString as reference to know segments of samples for every cycle
+        """
+        if reference_table_name not in self.analysis_results:
+            raise ValueError("Reference table not analyzed")
+        
+        result = self.analysis_results[reference_table_name]
+        
+        if result.error_message:
+            raise ValueError(f"Cannot generate LOTE_DATA: {result.error_message}")
+        
+        # Create a copy of the reference dataframe
+        lotedata_df = reference_df.copy()
+        
+        # Add CycleID column (will replace VarValue)
+        lotedata_df['CycleID'] = 0
+        
+        # Parse TimeString to datetime for comparison
+        time_series = self.analyzer.parse_time_string(lotedata_df[self.config.time_column])
+        
+        # Remove rows with invalid dates
+        valid_mask = time_series.notna()
+        time_series = time_series[valid_mask]
+        lotedata_df = lotedata_df[valid_mask]
+        
+        # Sort by datetime
+        sorted_indices = time_series.sort_values().index
+        time_series = time_series.loc[sorted_indices]
+        lotedata_df = lotedata_df.loc[sorted_indices]
+        
+        # Assign CycleID based on cycles
+        for cycle in result.cycles:
+            mask = (time_series >= cycle.start_time) & (time_series <= cycle.end_time)
+            lotedata_df.loc[mask, 'CycleID'] = cycle.cycle_id
+        
+        # Replace VarValue with CycleID if VarValue column exists
+        if 'VarValue' in lotedata_df.columns:
+            lotedata_df['VarValue'] = lotedata_df['CycleID']
+        
+        return lotedata_df
+    
     def get_analysis_summary(self) -> dict:
         """Get a summary of the analysis results"""
         summary = {
@@ -215,3 +260,83 @@ class AnalysisService:
             summary["table_details"][table_name] = table_info
         
         return summary
+    
+    
+    def generate_both_lote_tables(self, reference_table_name: str, reference_df: pd.DataFrame) -> Dict[str, pd.DataFrame]:
+        """
+        Generate both LOTE_SUMMARY and LOTE_DATA tables simultaneously
+        Returns a dictionary with both DataFrames
+        """
+        print(f"DEBUG: Generating both LOTE tables for {reference_table_name}")
+        print(f"DEBUG: Reference DF shape: {reference_df.shape}")
+        print(f"DEBUG: Reference DF columns: {list(reference_df.columns)}")
+        
+        if reference_table_name not in self.analysis_results:
+            raise ValueError("Reference table not analyzed")
+        
+        result = self.analysis_results[reference_table_name]
+        
+        if result.error_message:
+            raise ValueError(f"Cannot generate LOTE tables: {result.error_message}")
+        
+        if not result.cycles:
+            raise ValueError("No cycles found in reference table")
+        
+        print(f"DEBUG: Found {len(result.cycles)} cycles")
+        
+        # Generate LOTE_SUMMARY (summary table)
+        summary_data = []
+        for cycle in result.cycles:
+            # Calculate total time in hh:mm:ss format
+            total_seconds = int(cycle.duration_minutes * 60)
+            hours, remainder = divmod(total_seconds, 3600)
+            minutes, seconds = divmod(remainder, 60)
+            total_time = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+            
+            summary_data.append({
+                'CycleID': cycle.cycle_id,
+                'StartTime': cycle.start_time.strftime('%d/%m/%Y %H:%M:%S'),
+                'EndTime': cycle.end_time.strftime('%d/%m/%Y %H:%M:%S'),
+                'TotalTime': total_time,
+                'SamplesCount': cycle.sample_count
+            })
+        
+        lote_summary_df = pd.DataFrame(summary_data)
+        print(f"DEBUG: LOTE_SUMMARY shape: {lote_summary_df.shape}")
+        
+        # Generate LOTE_DATA (detailed table with CycleID mapping)
+        lote_data_df = reference_df.copy()
+        
+        # Add CycleID column
+        lote_data_df['CycleID'] = 0
+        
+        # Parse TimeString to datetime for comparison
+        time_series = self.analyzer.parse_time_string(lote_data_df[self.config.time_column])
+        
+        # Remove rows with invalid dates
+        valid_mask = time_series.notna()
+        time_series = time_series[valid_mask]
+        lote_data_df = lote_data_df[valid_mask]
+        
+        # Sort by datetime
+        sorted_indices = time_series.sort_values().index
+        time_series = time_series.loc[sorted_indices]
+        lote_data_df = lote_data_df.loc[sorted_indices]
+        
+        # Assign CycleID based on cycles
+        for cycle in result.cycles:
+            mask = (time_series >= cycle.start_time) & (time_series <= cycle.end_time)
+            lote_data_df.loc[mask, 'CycleID'] = cycle.cycle_id
+        
+        # Remove VarValue column if it exists
+        if 'VarValue' in lote_data_df.columns:
+            lote_data_df = lote_data_df.drop(columns=['VarValue'])
+            print("✅ Removed VarValue column from LOTE_DATA table")
+        
+        print(f"DEBUG: LOTE_DATA shape: {lote_data_df.shape}")
+        print(f"DEBUG: LOTE_DATA columns: {list(lote_data_df.columns)}")
+        
+        return {
+            'LOTE_SUMMARY': lote_summary_df,
+            'LOTE_DATA': lote_data_df
+        }
