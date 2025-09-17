@@ -1,8 +1,10 @@
+# infrastructure/repositories.py
 from typing import List, Optional
 import pandas as pd
 from core.models import DatabaseConfig
+from core.interfaces import IDatabaseRepository
 
-class DatabaseRepository:
+class DatabaseRepository(IDatabaseRepository):
     def __init__(self, db_connection):
         self.db_connection = db_connection
     

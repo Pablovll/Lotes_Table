@@ -1,31 +1,19 @@
-from infrastructure.database import DatabaseConnection
-from infrastructure.repositories import DatabaseRepository
+# infrastructure/db_service.py
 from core.models import DatabaseConfig, AuthenticationType
-from services.table_service import TableService
-from services.migration_service_fixed import MigrationService  
+from core.interfaces import IDatabaseConnection, IDatabaseRepository, ITableService, IMigrationService
 import pandas as pd
 from typing import Dict
 
-from infrastructure.database import DatabaseConnection
-from infrastructure.repositories import DatabaseRepository
-from core.models import DatabaseConfig, AuthenticationType
-from services.table_service import TableService
-from services.migration_service_fixed import MigrationService  # Use the fixed service
-
 class DatabaseService:
-    def __init__(self):
-        self.connection = DatabaseConnection()
-        self.repository = None
-        self.table_service = TableService()
-        self.migration_service = None
+    def __init__(self, db_connection: IDatabaseConnection, repository: IDatabaseRepository, 
+                 table_service: ITableService, migration_service: IMigrationService):
+        self.connection = db_connection
+        self.repository = repository
+        self.table_service = table_service
+        self.migration_service = migration_service
     
     def connect_to_database(self, config: DatabaseConfig) -> bool:
         success = self.connection.connect(config)
-        
-        if success:
-            self.repository = DatabaseRepository(self.connection)
-            self.migration_service = MigrationService(self.connection)
-        
         return success
     
     def migrate_database_schema(self) -> Dict[str, bool]:
@@ -94,13 +82,18 @@ class DatabaseService:
         return None
     
     def save_lotedata(self, df, table_name: str = 'LOTEDATA'):
+        print(f"DEBUG: Saving {table_name} with shape {df.shape}")
+        print(f"DEBUG: {table_name} columns: {list(df.columns)}")
+        
         if self.repository:
             # Ensure TimeString is properly formatted for Power BI
             if 'TimeString' in df.columns and not pd.api.types.is_datetime64_any_dtype(df['TimeString']):
                 df = df.copy()
                 df['TimeString'] = pd.to_datetime(df['TimeString'], dayfirst=True, errors='coerce')
             
-            return self.repository.save_lotedata(df, table_name)
+            success = self.repository.save_lotedata(df, table_name)
+            print(f"DEBUG: Save {table_name} result: {success}")
+            return success
         return False
     
     def check_table_has_timestring(self, table_name: str) -> bool:

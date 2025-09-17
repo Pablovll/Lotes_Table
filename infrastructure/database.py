@@ -1,10 +1,12 @@
+# infrastructure/database.py
 from sqlalchemy import create_engine, text, DateTime
 from sqlalchemy.exc import SQLAlchemyError
 from typing import Optional, List
 import pandas as pd
 from core.models import AuthenticationType
+from core.interfaces import IDatabaseConnection
 
-class DatabaseConnection:
+class DatabaseConnection(IDatabaseConnection):
     def __init__(self):
         self.engine = None
         self.connection_string = None
@@ -51,6 +53,31 @@ class DatabaseConnection:
                 return [row[0] for row in result]
         except SQLAlchemyError as e:
             print(f"Error fetching tables: {e}")
+            return []
+    
+    def get_tables_with_timestring(self) -> List[str]:
+        """Get only tables that have a TimeString column (faster method)"""
+        if not self.engine:
+            return []
+        
+        try:
+            with self.engine.connect() as conn:
+                # Query to find tables with TimeString column
+                result = conn.execute(text("""
+                    SELECT t.TABLE_NAME
+                    FROM INFORMATION_SCHEMA.TABLES t
+                    INNER JOIN INFORMATION_SCHEMA.COLUMNS c 
+                        ON t.TABLE_NAME = c.TABLE_NAME 
+                        AND t.TABLE_SCHEMA = c.TABLE_SCHEMA
+                    WHERE t.TABLE_TYPE = 'BASE TABLE'
+                    AND c.COLUMN_NAME = 'TimeString'
+                    AND t.TABLE_NAME NOT LIKE 'sys%'
+                    AND t.TABLE_NAME NOT LIKE 'MS%'
+                    ORDER BY t.TABLE_NAME
+                """))
+                return [row[0] for row in result]
+        except SQLAlchemyError as e:
+            print(f"Error fetching tables with TimeString: {e}")
             return []
     
     def read_table(self, table_name: str) -> Optional[pd.DataFrame]:
@@ -110,28 +137,3 @@ class DatabaseConnection:
         except SQLAlchemyError as e:
             print(f"Error creating {table_name} table: {e}")
             return False
-        
-    def get_tables_with_timestring(self) -> List[str]:
-        """Get only tables that have a TimeString column (faster method)"""
-        if not self.engine:
-            return []
-        
-        try:
-            with self.engine.connect() as conn:
-                # Query to find tables with TimeString column
-                result = conn.execute(text("""
-                    SELECT t.TABLE_NAME
-                    FROM INFORMATION_SCHEMA.TABLES t
-                    INNER JOIN INFORMATION_SCHEMA.COLUMNS c 
-                        ON t.TABLE_NAME = c.TABLE_NAME 
-                        AND t.TABLE_SCHEMA = c.TABLE_SCHEMA
-                    WHERE t.TABLE_TYPE = 'BASE TABLE'
-                    AND c.COLUMN_NAME = 'TimeString'
-                    AND t.TABLE_NAME NOT LIKE 'sys%'
-                    AND t.TABLE_NAME NOT LIKE 'MS%'
-                    ORDER BY t.TABLE_NAME
-                """))
-                return [row[0] for row in result]
-        except SQLAlchemyError as e:
-            print(f"Error fetching tables with TimeString: {e}")
-            return []

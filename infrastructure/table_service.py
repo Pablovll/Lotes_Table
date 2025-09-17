@@ -1,8 +1,10 @@
+# infrastructure/table_service.py
 import pandas as pd
 from typing import Optional, Dict
 from core.cycle_analyzer import CycleAnalyzer
+from core.interfaces import ITableService
 
-class TableService:
+class TableService(ITableService):
     def __init__(self):
         self.analyzer = CycleAnalyzer(time_threshold_minutes=10, expected_frequency_minutes=5)
     

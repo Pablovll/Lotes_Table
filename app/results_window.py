@@ -1,3 +1,4 @@
+# app/results_window.py
 import tkinter as tk
 from tkinter import ttk, messagebox, scrolledtext
 import pandas as pd
@@ -10,7 +11,7 @@ class ResultsWindow:
         self.on_complete_callback = on_complete_callback
         self.window = None
         self.selected_table = None
-        self.lotedata_type = tk.StringVar(value="summary")  # summary or detailed
+        self.lotedata_type = tk.StringVar(value="detailed_mapping")  # summary, detailed, or detailed_mapping
         self.ref_var = tk.StringVar()  # Move this to init
         self.ref_dropdown = None
         
@@ -133,11 +134,13 @@ class ResultsWindow:
             tk.Label(type_frame, text="LOTEDATA Type:").pack(side='left')
             
             ttk.Radiobutton(type_frame, text="Summary Table", 
-                           variable=self.lotedata_type, value="summary").pack(side='left', padx=5)
+               variable=self.lotedata_type, value="summary").pack(side='left', padx=5)
             ttk.Radiobutton(type_frame, text="Detailed Mapping", 
-                           variable=self.lotedata_type, value="detailed").pack(side='left', padx=5)
-            
-            # Create LOTEDATA button
+               variable=self.lotedata_type, value="detailed").pack(side='left', padx=5)
+            ttk.Radiobutton(type_frame, text="BOTH: LOTE_SUMMARY + LOTE_DATA", 
+               variable=self.lotedata_type, value="detailed_mapping").pack(side='left', padx=5)
+
+
             tk.Button(lotedata_frame, text="Create LOTEDATA Table", command=self.create_lotedata,
                      bg="green", fg="white", font=("Arial", 10, "bold")).pack(pady=10)
         else:
@@ -146,19 +149,22 @@ class ResultsWindow:
         
         self.window.mainloop()
     
+# app/results_window.py
+# Modify the create_lotedata method
+
+    
+    
     def create_lotedata(self):
         # Get the selected value from the combobox
         selected_table = self.ref_var.get()
         
-        # Debug print to see what's being retrieved
-        print(f"Selected table: '{selected_table}'")
-        print(f"Combobox values: {self.ref_dropdown['values']}")
-        print(f"Current combobox selection: {self.ref_dropdown.get()}")
+        # DEBUG: Print the selected options
+        print(f"DEBUG: Selected table: {selected_table}")
+        print(f"DEBUG: Selected lotedata_type: {self.lotedata_type.get()}")
         
         if not selected_table or selected_table.strip() == "":
             # If no selection from variable, try to get from combobox directly
             selected_table = self.ref_dropdown.get()
-            print(f"Falling back to combobox get(): '{selected_table}'")
             
         if not selected_table or selected_table.strip() == "":
             messagebox.showwarning("Selection Error", "Please select a reference table")
@@ -171,20 +177,54 @@ class ResultsWindow:
                 raise ValueError("Could not fetch reference table data or table is empty")
             
             # Generate LOTEDATA based on selected type
-            if self.lotedata_type.get() == "summary":
-                lotedata_df = self.analysis_service.generate_lotedata_summary(selected_table)
-                table_name = "LOTEDATA_SUMMARY"
-            else:
-                lotedata_df = self.analysis_service.generate_lotedata_detailed(selected_table, ref_df)
-                table_name = "LOTEDATA_DETAILED"
+            lotedata_type = self.lotedata_type.get()
+            print(f"DEBUG: Processing lotedata_type: {lotedata_type}")
             
-            # Save to database
-            success = self.db_service.save_lotedata(lotedata_df, table_name)
+            if lotedata_type == "summary":
+                print("DEBUG: Generating summary table")
+                lotedata_df = self.analysis_service.generate_lotedata_summary(selected_table)
+                success = self.db_service.save_lotedata(lotedata_df, "LOTEDATA_SUMMARY")
+                table_name = "LOTEDATA_SUMMARY"
+                
+            elif lotedata_type == "detailed":
+                print("DEBUG: Generating detailed table")
+                lotedata_df = self.analysis_service.generate_lotedata_detailed(selected_table, ref_df)
+                success = self.db_service.save_lotedata(lotedata_df, "LOTEDATA_DETAILED")
+                table_name = "LOTEDATA_DETAILED"
+                
+            elif lotedata_type == "detailed_mapping":
+                print("DEBUG: Generating both LOTE tables")
+                # Generate both tables simultaneously
+                lote_tables = self.analysis_service.generate_both_lote_tables(selected_table, ref_df)
+                
+                # Save both tables to database
+                success1 = self.db_service.save_lotedata(lote_tables['LOTE_SUMMARY'], "LOTE_SUMMARY")
+                success2 = self.db_service.save_lotedata(lote_tables['LOTE_DATA'], "LOTE_DATA")
+                
+                success = success1 and success2
+                table_name = "LOTE_SUMMARY and LOTE_DATA"
+                
+                # DEBUG: Print information about the tables
+                print(f"DEBUG: LOTE_SUMMARY shape: {lote_tables['LOTE_SUMMARY'].shape}")
+                print(f"DEBUG: LOTE_DATA shape: {lote_tables['LOTE_DATA'].shape}")
+                print(f"DEBUG: LOTE_DATA columns: {list(lote_tables['LOTE_DATA'].columns)}")
+                print(f"DEBUG: Save LOTE_SUMMARY success: {success1}")
+                print(f"DEBUG: Save LOTE_DATA success: {success2}")
+                
+            else:
+                raise ValueError(f"Invalid LOTEDATA type selected: {lotedata_type}")
             
             if success:
                 messagebox.showinfo("Success", f"{table_name} created successfully!")
+                
                 # Show preview of the created data
-                self.show_lotedata_preview(lotedata_df, table_name)
+                if lotedata_type == "detailed_mapping":
+                    # Show preview of both tables
+                    self.show_lotedata_preview(lote_tables['LOTE_SUMMARY'], "LOTE_SUMMARY")
+                    self.show_lotedata_preview(lote_tables['LOTE_DATA'], "LOTE_DATA")
+                else:
+                    self.show_lotedata_preview(lotedata_df, table_name)
+                    
                 self.window.destroy()
                 self.on_complete_callback()
             else:
@@ -192,7 +232,8 @@ class ResultsWindow:
                 
         except Exception as e:
             messagebox.showerror("Error", f"Failed to create LOTEDATA: {str(e)}")
-    
+            import traceback
+            traceback.print_exc()  # This will print the full traceback to help debug
     def show_lotedata_preview(self, df, table_name):
         """Show a preview of the LOTEDATA table"""
         preview = tk.Toplevel(self.window)
