@@ -2,8 +2,12 @@
 from core.cycle_analyzer import CycleAnalyzer
 from core.models import TableResult, AnalysisConfig
 import pandas as pd
-from datetime import timedelta
+import numpy as np  # Add this import
+from datetime import datetime, timedelta  # Add this import
 from typing import Dict
+from services.timestring_recovery_service import TimeStringRecoveryService
+#from services.format_preservation_service import FormatPreservationService
+import json
 
 class AnalysisService:
     def __init__(self, config: AnalysisConfig):
@@ -12,11 +16,69 @@ class AnalysisService:
             time_threshold_minutes=self.config.time_threshold_minutes,
             expected_frequency_minutes=self.config.expected_frequency_minutes
         )
+        self.recovery_service = TimeStringRecoveryService() 
         self.analysis_results = {}
         self.time_matched = False
     
-    def analyze_tables(self, table_data: dict) -> dict:
+    def analyze_tables(self, table_data: dict, recovery_strategy: str = "auto") -> dict:
         self.analysis_results = {}
+        
+        # First, analyze and recover TimeString data if needed
+        recovered_table_data = {}
+        recovery_reports = {}
+        
+        for table_name, df in table_data.items():
+            if self.config.time_column in df.columns:
+                # Analyze TimeString quality
+                quality_report = self.recovery_service.analyze_timestring_quality(df, self.config.time_column)
+                
+                print(f"\n📊 TimeString Quality Report for {table_name}:")
+                print(f"   Total rows: {quality_report['total_rows']}")
+                print(f"   Valid timestamps: {quality_report['valid_count']} ({quality_report['valid_count']/quality_report['total_rows']*100:.1f}%)")
+                print(f"   Invalid timestamps: {quality_report['invalid_count']} ({quality_report['invalid_count']/quality_report['total_rows']*100:.1f}%)")
+                print(f"   Null values: {quality_report['null_count']} ({quality_report['null_count']/quality_report['total_rows']*100:.1f}%)")
+                print(f"   Data loss potential: {quality_report['data_loss_percentage']:.1f}%")
+                
+                # Recover data if needed
+                if quality_report['data_loss_percentage'] > 0:
+                    print(f"   🚨 Data recovery needed! Using {recovery_strategy} strategy...")
+                    
+                    recovery_result = self.recovery_service.recover_timestrings(
+                        df, self.config.time_column, recovery_strategy
+                    )
+                    
+                    if recovery_result["success"]:
+                        recovered_table_data[table_name] = recovery_result["recovered_df"]
+                        recovery_reports[table_name] = recovery_result["recovery_report"]
+                        
+                        print(f"   ✅ Recovered {recovery_result['recovery_report']['total_recovered']} timestamps")
+                        print(f"   📈 Average confidence: {recovery_result['recovery_report']['average_confidence']:.2f}")
+                        
+                        # Show recovery details for first few items
+                        if recovery_result['recovery_report']['recovery_details']:
+                            print(f"   🔍 Sample recoveries:")
+                            for detail in recovery_result['recovery_report']['recovery_details'][:3]:
+                                print(f"      Row {detail['index']}: '{detail['original_value']}' → '{detail['recovered_value']}' (confidence: {detail['confidence']:.2f})")
+                    else:
+                        print(f"   ⚠️ Recovery failed: {recovery_result['message']}")
+                        recovered_table_data[table_name] = df
+                else:
+                    print(f"   ✅ No recovery needed - all timestamps are valid!")
+                    recovered_table_data[table_name] = df
+            else:
+                recovered_table_data[table_name] = df
+        
+        # Use recovered data for analysis
+        table_data = recovered_table_data
+        
+        # ⭐⭐⭐ ENSURE CLEAN TIMESTRING FORMAT (NO MILLISECONDS) ⭐⭐⭐
+        for table_name, df in table_data.items():
+            if self.config.time_column in df.columns:
+                # Remove milliseconds if present in datetime columns
+                if pd.api.types.is_datetime64_any_dtype(df[self.config.time_column]):
+                    # Remove milliseconds by converting to string and back
+                    df[self.config.time_column] = df[self.config.time_column].dt.strftime('%Y-%m-%d %H:%M:%S')
+                    df[self.config.time_column] = pd.to_datetime(df[self.config.time_column], errors='coerce')
         
         # Enhanced time matching with debugging
         time_matched, debug_info = self.analyzer.check_time_matching(table_data, self.config.time_column)

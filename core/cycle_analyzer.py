@@ -1,3 +1,4 @@
+# core/cycle_analyzer.py
 import pandas as pd
 from datetime import datetime, timedelta
 from typing import List, Dict, Tuple
@@ -7,6 +8,7 @@ class CycleAnalyzer:
     def __init__(self, time_threshold_minutes: int, expected_frequency_minutes: int):
         self.time_threshold = timedelta(minutes=time_threshold_minutes)
         self.expected_frequency = timedelta(minutes=expected_frequency_minutes)
+    
     # --- Time Parsing ---
     def parse_time_string(self, time_series: pd.Series) -> pd.Series:
         """Parse TimeString into datetime with dd/mm/yyyy hh:mm:ss format"""
@@ -20,28 +22,32 @@ class CycleAnalyzer:
                     return pd.NaT
             return time_series.apply(parse_custom_date)
 
-    # --- Core Cycle Detection ---
     def detect_cycles(self, time_series: pd.Series) -> List[Cycle]:
+        """
+        Detect cycles from time series data
+        """
         if len(time_series) == 0:
             return []
 
-        # Convert to datetime and clean invalid
-        time_series = self.parse_time_string(time_series).dropna()
-
-        if len(time_series) == 0:
+        # Parse timestamps
+        parsed_series = self.parse_time_string(time_series)
+        
+        # Remove invalid timestamps (original behavior)
+        valid_series = parsed_series.dropna()
+        if len(valid_series) == 0:
             return []
-
+        
         # Sort by datetime
-        time_series = time_series.sort_values().reset_index(drop=True)
-
-        cycles: List[Cycle] = []
+        valid_series = valid_series.sort_values().reset_index(drop=True)
+        
+        cycles = []
         current_cycle_id = 1
-        cycle_start = time_series.iloc[0]
-        previous_time = time_series.iloc[0]
+        cycle_start = valid_series.iloc[0]
+        previous_time = valid_series.iloc[0]
         sample_count = 1
 
-        for i in range(1, len(time_series)):
-            current_time = time_series.iloc[i]
+        for i in range(1, len(valid_series)):
+            current_time = valid_series.iloc[i]
             time_diff = current_time - previous_time
             sample_count += 1
 
@@ -53,7 +59,7 @@ class CycleAnalyzer:
                         cycle_id=current_cycle_id,
                         start_time=cycle_start,
                         end_time=previous_time,
-                        sample_count=sample_count - 1,  # Don't count the gap
+                        sample_count=sample_count - 1,
                         duration_minutes=duration
                     )
                 )
@@ -111,6 +117,54 @@ class CycleAnalyzer:
                 total_cycles=0,
                 error_message=f"Analysis error: {str(e)}"
             )
+
+
+    def _detect_cycles_from_valid_times(self, time_series: pd.Series) -> List[Cycle]:
+        """Detect cycles from already-validated timestamps"""
+        cycles = []
+        current_cycle_id = 1
+        cycle_start = time_series.iloc[0]
+        previous_time = time_series.iloc[0]
+        sample_count = 1
+
+        for i in range(1, len(time_series)):
+            current_time = time_series.iloc[i]
+            time_diff = current_time - previous_time
+            sample_count += 1
+
+            if time_diff > self.time_threshold:
+                # Close current cycle
+                duration = (previous_time - cycle_start).total_seconds() / 60
+                cycles.append(
+                    Cycle(
+                        cycle_id=current_cycle_id,
+                        start_time=cycle_start,
+                        end_time=previous_time,
+                        sample_count=sample_count - 1,
+                        duration_minutes=duration
+                    )
+                )
+                # Start new cycle
+                current_cycle_id += 1
+                cycle_start = current_time
+                sample_count = 1
+
+            previous_time = current_time
+
+        # Append last cycle
+        duration = (previous_time - cycle_start).total_seconds() / 60
+        cycles.append(
+            Cycle(
+                cycle_id=current_cycle_id,
+                start_time=cycle_start,
+                end_time=previous_time,
+                sample_count=sample_count,
+                duration_minutes=duration
+            )
+        )
+
+        return cycles
+   
     # --- Enhanced Cross-Table Check with Debugging ---
     def check_time_matching(self, tables: Dict[str, pd.DataFrame], time_column: str = "TimeString") -> Tuple[bool, Dict]:
         """
@@ -273,36 +327,3 @@ class CycleAnalyzer:
         
         return result
 
-    # --- Enhanced analysis method to use the new matching check ---
-    def analyze_table(self, table_name: str, df: pd.DataFrame, time_column: str = "TimeString") -> TableResult:
-        try:
-            if time_column not in df.columns:
-                return TableResult(
-                    table_name=table_name,
-                    cycles=[],
-                    total_cycles=0,
-                    error_message=f"Column '{time_column}' not found"
-                )
-
-            if df.empty:
-                return TableResult(
-                    table_name=table_name,
-                    cycles=[],
-                    total_cycles=0,
-                    error_message="Table is empty"
-                )
-
-            cycles = self.detect_cycles(df[time_column])
-
-            return TableResult(
-                table_name=table_name,
-                cycles=cycles,
-                total_cycles=len(cycles),
-            )
-        except Exception as e:
-            return TableResult(
-                table_name=table_name,
-                cycles=[],
-                total_cycles=0,
-                error_message=f"Analysis error: {str(e)}"
-            )

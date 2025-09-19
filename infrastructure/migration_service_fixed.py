@@ -63,11 +63,11 @@ class MigrationService(IMigrationService):
                             ADD TimeString_temp DATETIME
                         """))
                         
-                        # Step 2: Convert and copy data
+                        # Step 2: Convert and copy data using proper format
                         conn.execute(text(f"""
                             UPDATE [{table_name}]
                             SET TimeString_temp = TRY_CONVERT(DATETIME, TimeString, 103)
-                            WHERE ISDATE(TimeString) = 1
+                            WHERE TRY_CONVERT(DATETIME, TimeString, 103) IS NOT NULL
                         """))
                         
                         # Step 3: Drop the old column
@@ -76,7 +76,7 @@ class MigrationService(IMigrationService):
                             DROP COLUMN TimeString
                         """))
                         
-                        # Step 4: Rename the new column
+                        # Step 4: Rename the new column (KEEP AS DATETIME)
                         conn.execute(text(f"""
                             EXEC sp_rename '{table_name}.TimeString_temp', 'TimeString', 'COLUMN'
                         """))

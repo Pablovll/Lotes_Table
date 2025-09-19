@@ -56,7 +56,25 @@ class ProductionCycleAnalyzerApp:
         main.show()
     
     def on_analyze_tables(self, table_data):
-        analysis_results = self.analysis_service.analyze_tables(table_data)
+        # Ask user for recovery strategy
+        print("\n🔄 Choose TimeString recovery strategy:")
+        print("1. Auto (recommended) - Let system choose best approach")
+        print("2. Interpolate - Simple time-based interpolation")
+        print("3. Reconstruct - Smart pattern-based reconstruction")
+        print("4. Pattern - Advanced pattern detection")
+        print("5. None - Skip recovery (original behavior)")
+        
+        choice = input("Enter choice (1-5, default=1): ").strip()
+        strategies = {"1": "auto", "2": "interpolate", "3": "reconstruct", "4": "pattern", "5": "none"}
+        strategy = strategies.get(choice, "auto")
+        
+        if strategy == "none":
+            print("⏭️ Skipping data recovery...")
+            analysis_results = self.analysis_service.analyze_tables(table_data, "none")
+        else:
+            print(f"🔧 Using {strategy} recovery strategy...")
+            analysis_results = self.analysis_service.analyze_tables(table_data, strategy)
+        
         self.show_results_window(analysis_results)
     
     def show_results_window(self, analysis_results):

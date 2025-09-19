@@ -79,38 +79,30 @@ class DatabaseConnection(IDatabaseConnection):
         except SQLAlchemyError as e:
             print(f"Error fetching tables with TimeString: {e}")
             return []
-    
     def read_table(self, table_name: str) -> Optional[pd.DataFrame]:
         if not self.engine:
             return None
         
         try:
-            # Use CONVERT to handle varchar to datetime conversion in SQL
-            query = text(f"""
-                SELECT *,
-                CONVERT(datetime, TimeString, 103) as TimeStringDateTime
-                FROM [{table_name}]
-                ORDER BY CONVERT(datetime, TimeString, 103)
-            """)
-            
+            # Simple query - we'll handle milliseconds in Python
+            query = text(f"SELECT * FROM [{table_name}]")
             df = pd.read_sql(query, self.engine)
             
-            # Rename the converted column back to TimeString for consistency
-            if 'TimeStringDateTime' in df.columns:
-                df = df.rename(columns={'TimeStringDateTime': 'TimeString'})
-                # Drop the original varchar column if it still exists
-                if 'TimeString' in df.columns and len([col for col in df.columns if col == 'TimeString']) > 1:
-                    df = df.loc[:, ~df.columns.duplicated()]
-            
-            # Ensure TimeString is properly formatted as datetime
+            # Ensure TimeString is properly handled
             if 'TimeString' in df.columns:
-                df['TimeString'] = pd.to_datetime(df['TimeString'], dayfirst=True)  # Added dayfirst=True
+                # Convert to datetime if it's not already
+                if not pd.api.types.is_datetime64_any_dtype(df['TimeString']):
+                    df['TimeString'] = pd.to_datetime(df['TimeString'], dayfirst=True, errors='coerce')
+                
+                # Remove milliseconds from TimeString column itself
+                df['TimeString'] = df['TimeString'].dt.strftime('%Y-%m-%d %H:%M:%S')
+                df['TimeString'] = pd.to_datetime(df['TimeString'], errors='coerce')
             
             return df
+            
         except SQLAlchemyError as e:
             print(f"Error reading table [{table_name}]: {e}")
             return None
-    
     def create_lotedata_table(self, df: pd.DataFrame, table_name: str = 'LOTEDATA') -> bool:
         if not self.engine:
             return False

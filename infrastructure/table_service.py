@@ -10,7 +10,7 @@ class TableService(ITableService):
     
     def convert_timestring_to_datetime(self, df: pd.DataFrame, time_column: str = "TimeString") -> Optional[pd.DataFrame]:
         """
-        Convert TimeString column from varchar to datetime for Power BI compatibility
+        Convert TimeString to datetime without milliseconds
         """
         try:
             if df is None or df.empty or time_column not in df.columns:
@@ -18,8 +18,13 @@ class TableService(ITableService):
             
             df = df.copy()
             
-            # Convert to datetime with dayfirst=True for dd/mm/yyyy format
-            df[time_column] = pd.to_datetime(df[time_column], dayfirst=True, errors='coerce')
+            # Convert to datetime if needed
+            if not pd.api.types.is_datetime64_any_dtype(df[time_column]):
+                df[time_column] = pd.to_datetime(df[time_column], dayfirst=True, errors='coerce')
+            
+            # Remove milliseconds
+            df[time_column] = df[time_column].dt.strftime('%Y-%m-%d %H:%M:%S')
+            df[time_column] = pd.to_datetime(df[time_column], errors='coerce')
             
             # Remove rows with invalid dates
             valid_mask = df[time_column].notna()
@@ -30,7 +35,6 @@ class TableService(ITableService):
         except Exception as e:
             print(f"Error converting {time_column} to datetime: {e}")
             return None
-    
     def sort_table_by_timestring(self, df: pd.DataFrame, time_column: str = "TimeString") -> Optional[pd.DataFrame]:
         """
         Sort DataFrame by TimeString column in ascending order with datetime conversion
