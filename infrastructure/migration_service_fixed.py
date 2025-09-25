@@ -8,6 +8,7 @@ from core.interfaces import IMigrationService
 class MigrationService(IMigrationService):
     def __init__(self, db_connection):
         self.db_connection = db_connection
+        self.excluded_tables = {"LOTE_DATA", "LOTE_SUMMARY", "FactSamples"}
     
     def get_tables_with_timestring(self) -> List[str]:
         """Get all tables that have a TimeString column"""
@@ -24,7 +25,9 @@ class MigrationService(IMigrationService):
                     AND t.TABLE_NAME NOT LIKE 'sys%'
                     AND t.TABLE_NAME NOT LIKE 'MS%'
                 """))
-                return [row[0] for row in result]
+                tables = [row[0] for row in result]
+                # 🚫 Exclude LOTE tables
+                return [t for t in tables if t not in self.excluded_tables]
         except SQLAlchemyError as e:
             print(f"Error getting tables with TimeString: {e}")
             return []

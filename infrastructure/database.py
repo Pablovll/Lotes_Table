@@ -37,48 +37,52 @@ class DatabaseConnection(IDatabaseConnection):
             return False
     
     def get_tables(self) -> List[str]:
-        if not self.engine:
-            return []
+            if not self.engine:
+                return []
+            
+            try:
+                with self.engine.connect() as conn:
+                    result = conn.execute(text("""
+                        SELECT TABLE_NAME 
+                        FROM INFORMATION_SCHEMA.TABLES 
+                        WHERE TABLE_TYPE = 'BASE TABLE'
+                        AND TABLE_NAME NOT LIKE 'sys%'
+                        AND TABLE_NAME NOT LIKE 'MS%'
+                        AND TABLE_NAME NOT IN ('LOTEDATA', 'LOTEDATA_SUMMARY', 'LOTEDATA_DETAILED',
+                                            'LOTE_DATA', 'LOTE_SUMMARY', 'FactSamples')
+                        ORDER BY TABLE_NAME
+                    """))
+                    return [row[0] for row in result]
+            except SQLAlchemyError as e:
+                print(f"Error fetching tables: {e}")
+                return []
         
-        try:
-            with self.engine.connect() as conn:
-                result = conn.execute(text("""
-                    SELECT TABLE_NAME 
-                    FROM INFORMATION_SCHEMA.TABLES 
-                    WHERE TABLE_TYPE = 'BASE TABLE'
-                    AND TABLE_NAME NOT LIKE 'sys%'
-                    AND TABLE_NAME NOT LIKE 'MS%'
-                    ORDER BY TABLE_NAME
-                """))
-                return [row[0] for row in result]
-        except SQLAlchemyError as e:
-            print(f"Error fetching tables: {e}")
-            return []
-    
     def get_tables_with_timestring(self) -> List[str]:
-        """Get only tables that have a TimeString column (faster method)"""
-        if not self.engine:
-            return []
-        
-        try:
-            with self.engine.connect() as conn:
-                # Query to find tables with TimeString column
-                result = conn.execute(text("""
-                    SELECT t.TABLE_NAME
-                    FROM INFORMATION_SCHEMA.TABLES t
-                    INNER JOIN INFORMATION_SCHEMA.COLUMNS c 
-                        ON t.TABLE_NAME = c.TABLE_NAME 
-                        AND t.TABLE_SCHEMA = c.TABLE_SCHEMA
-                    WHERE t.TABLE_TYPE = 'BASE TABLE'
-                    AND c.COLUMN_NAME = 'TimeString'
-                    AND t.TABLE_NAME NOT LIKE 'sys%'
-                    AND t.TABLE_NAME NOT LIKE 'MS%'
-                    ORDER BY t.TABLE_NAME
-                """))
-                return [row[0] for row in result]
-        except SQLAlchemyError as e:
-            print(f"Error fetching tables with TimeString: {e}")
-            return []
+            """Get only tables that have a TimeString column (faster method)"""
+            if not self.engine:
+                return []
+            
+            try:
+                with self.engine.connect() as conn:
+                    result = conn.execute(text("""
+                        SELECT t.TABLE_NAME
+                        FROM INFORMATION_SCHEMA.TABLES t
+                        INNER JOIN INFORMATION_SCHEMA.COLUMNS c 
+                            ON t.TABLE_NAME = c.TABLE_NAME 
+                            AND t.TABLE_SCHEMA = c.TABLE_SCHEMA
+                        WHERE t.TABLE_TYPE = 'BASE TABLE'
+                        AND c.COLUMN_NAME = 'TimeString'
+                        AND t.TABLE_NAME NOT LIKE 'sys%'
+                        AND t.TABLE_NAME NOT LIKE 'MS%'
+                        AND t.TABLE_NAME NOT IN ('LOTEDATA', 'LOTEDATA_SUMMARY', 'LOTEDATA_DETAILED',
+                                                'LOTE_DATA', 'LOTE_SUMMARY', 'FactSamples')
+                        ORDER BY t.TABLE_NAME
+                    """))
+                    return [row[0] for row in result]
+            except SQLAlchemyError as e:
+                print(f"Error fetching tables with TimeString: {e}")
+                return []
+
     def read_table(self, table_name: str) -> Optional[pd.DataFrame]:
         if not self.engine:
             return None
@@ -103,11 +107,33 @@ class DatabaseConnection(IDatabaseConnection):
         except SQLAlchemyError as e:
             print(f"Error reading table [{table_name}]: {e}")
             return None
+    
     def create_lotedata_table(self, df: pd.DataFrame, table_name: str = 'LOTEDATA') -> bool:
         if not self.engine:
             return False
         
         try:
+            # Filter columns based on table name
+            if table_name == 'LOTE_DATA':
+                # For LOTE_DATA table, keep only TimeString and Cycle columns
+                required_columns = ['TimeString', 'Cycle']
+                available_columns = [col for col in required_columns if col in df.columns]
+                
+                if len(available_columns) < 2:
+                    print(f"Warning: LOTE_DATA table requires 'TimeString' and 'Cycle' columns. Found: {list(df.columns)}")
+                    # Try to find similar column names
+                    cycle_columns = [col for col in df.columns if 'cycle' in col.lower() or 'lote' in col.lower()]
+                    if cycle_columns:
+                        df = df.rename(columns={cycle_columns[0]: 'Cycle'})
+                        available_columns = [col for col in required_columns if col in df.columns]
+                
+                if len(available_columns) == 2:
+                    df = df[available_columns]
+                    print(f"LOTE_DATA table filtered to columns: {available_columns}")
+                else:
+                    print(f"Error: Cannot create LOTE_DATA table. Required columns not found.")
+                    return False
+            
             # Ensure TimeString is datetime type for Power BI compatibility
             if 'TimeString' in df.columns:
                 df = df.copy()
@@ -115,17 +141,27 @@ class DatabaseConnection(IDatabaseConnection):
                 if not pd.api.types.is_datetime64_any_dtype(df['TimeString']):
                     df['TimeString'] = pd.to_datetime(df['TimeString'], dayfirst=True, errors='coerce')
             
+            # Remove unwanted columns from any table
+            unwanted_columns = ['VarName', 'Validity', 'Time_ms', 'VarName', 'Validity', 'Time_ms']
+            columns_to_keep = [col for col in df.columns if col not in unwanted_columns]
+            df = df[columns_to_keep]
+            
             # Save with explicit datetime type
+            dtype_mapping = {}
+            if 'TimeString' in df.columns:
+                dtype_mapping['TimeString'] = DateTime()
+            
             df.to_sql(
                 table_name, 
                 self.engine, 
                 if_exists='replace', 
                 index=False,
-                dtype={'TimeString': DateTime()} if 'TimeString' in df.columns else {}
+                dtype=dtype_mapping
             )
             
-            print(f"Successfully created table: {table_name} with datetime column")
+            print(f"Successfully created table: {table_name} with columns: {list(df.columns)}")
             return True
+            
         except SQLAlchemyError as e:
             print(f"Error creating {table_name} table: {e}")
             return False

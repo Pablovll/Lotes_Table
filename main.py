@@ -10,6 +10,9 @@ from infrastructure.table_service import TableService
 from infrastructure.migration_service_fixed import MigrationService
 from services.analysis_service import AnalysisService
 from core.models import DatabaseConfig, AnalysisConfig
+from services.fact_samples_service import run_fact_samples_etl
+
+
 
 class ProductionCycleAnalyzerApp:
     def __init__(self):
@@ -18,6 +21,7 @@ class ProductionCycleAnalyzerApp:
         repository = DatabaseRepository(db_connection)
         table_service = TableService()
         migration_service = MigrationService(db_connection)
+        
         
         # Initialize services with dependency injection
         self.db_service = DatabaseService(db_connection, repository, table_service, migration_service)
@@ -34,10 +38,8 @@ class ProductionCycleAnalyzerApp:
     def on_database_connect(self, db_config: DatabaseConfig, analysis_config: AnalysisConfig, should_migrate: bool) -> bool:
         success = self.db_service.connect_to_database(db_config)
         if success:
-            # Perform migration if requested
             if should_migrate:
                 migration_results = self.db_service.migrate_database_schema()
-                # Show migration results
                 successful_migrations = sum(1 for result in migration_results.get('migration', {}).values() if result)
                 total_tables = len(migration_results.get('migration', {}))
                 
@@ -45,12 +47,15 @@ class ProductionCycleAnalyzerApp:
                     print(f"✅ Successfully migrated {successful_migrations}/{total_tables} tables")
                 else:
                     print("⚠️ No migrations were performed")
-            
+
+            # 👉 Run FactSamples ETL
+            print("⚙️ NOT Running FactSamples ETL yet...")
+           # run_fact_samples_etl(self.db_service)
+
             # Initialize analysis service
             self.analysis_service = AnalysisService(analysis_config)
             self.show_main_window()
         return success
-    
     def show_main_window(self):
         main = MainWindow(self.db_service, self.on_analyze_tables)
         main.show()
