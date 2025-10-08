@@ -233,9 +233,40 @@ class ResultsWindow:
                 raise ValueError(f"Invalid LOTEDATA type selected: {lotedata_type}")
             
             if success:
-                messagebox.showinfo("Success", f"{table_name} created successfully!")
+                # ✅ AUTOMATICALLY RUN CYCLE_EVENTS GENERATION AFTER SUCCESSFUL LOTEDATA CREATION
+                print("🚀 Automatically generating Cycle_Events table...")
                 
-                # Show preview of the created data
+                try:
+                    # Generate Cycle_Events table
+                    cycle_events_df = self.analysis_service.generate_cycle_events(
+                        selected_table, 
+                        ref_df, 
+                        self.db_service.connection  # Pass the database connection
+                    )
+                    
+                    if cycle_events_df is not None:
+                        print(f"✅ Cycle_Events table generated successfully with {len(cycle_events_df)} events")
+                        
+                        # Show preview of Cycle_Events table
+                        self.show_lotedata_preview(cycle_events_df, "Cycle_Events")
+                        
+                        # Show success message including Cycle_Events creation
+                        messagebox.showinfo("Success", 
+                            f"{table_name} created successfully!\n\n"
+                            f"Cycle_Events table also generated with {len(cycle_events_df)} events.")
+                    else:
+                        messagebox.showinfo("Success", 
+                            f"{table_name} created successfully!\n\n"
+                            "Cycle_Events generation completed.")
+                        
+                except Exception as e:
+                    print(f"⚠️ Cycle_Events generation failed: {e}")
+                    # Still show success for LOTEDATA, but warn about Cycle_Events
+                    messagebox.showinfo("Success with Warning", 
+                        f"{table_name} created successfully!\n\n"
+                        f"Cycle_Events generation encountered an issue: {str(e)}")
+                
+                # Show preview of the created LOTEDATA data
                 if lotedata_type == "detailed_mapping":
                     # Show preview of both tables
                     self.show_lotedata_preview(lote_tables['LOTE_SUMMARY'], "LOTE_SUMMARY")
@@ -243,6 +274,9 @@ class ResultsWindow:
                 else:
                     self.show_lotedata_preview(lotedata_df, table_name)
                     
+                # Window remains open - user can create more tables or run ETL
+                print(f"✅ {table_name} created. Window remains open for further actions.")
+                
             else:
                 messagebox.showerror("Error", f"Failed to create {table_name}")
                 

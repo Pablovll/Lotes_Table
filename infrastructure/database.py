@@ -10,6 +10,10 @@ class DatabaseConnection(IDatabaseConnection):
     def __init__(self):
         self.engine = None
         self.connection_string = None
+        self.excluded_tables = {
+            "FactSamples",
+            "Cycle_Events"
+        }
     
     def connect(self, config) -> bool:
         try:
@@ -78,7 +82,7 @@ class DatabaseConnection(IDatabaseConnection):
                                                 'LOTE_DATA', 'LOTE_SUMMARY', 'FactSamples')
                         ORDER BY t.TABLE_NAME
                     """))
-                    return [row[0] for row in result]
+                    return [row[0] for row in result if row[0] not in self.excluded_tables]
             except SQLAlchemyError as e:
                 print(f"Error fetching tables with TimeString: {e}")
                 return []
@@ -116,15 +120,15 @@ class DatabaseConnection(IDatabaseConnection):
             # Filter columns based on table name
             if table_name == 'LOTE_DATA':
                 # For LOTE_DATA table, keep only TimeString and Cycle columns
-                required_columns = ['TimeString', 'Cycle']
+                required_columns = ['TimeString', 'CycleID']
                 available_columns = [col for col in required_columns if col in df.columns]
                 
                 if len(available_columns) < 2:
-                    print(f"Warning: LOTE_DATA table requires 'TimeString' and 'Cycle' columns. Found: {list(df.columns)}")
+                    print(f"Warning: LOTE_DATA table requires 'TimeString' and 'CycleID' columns. Found: {list(df.columns)}")
                     # Try to find similar column names
                     cycle_columns = [col for col in df.columns if 'cycle' in col.lower() or 'lote' in col.lower()]
                     if cycle_columns:
-                        df = df.rename(columns={cycle_columns[0]: 'Cycle'})
+                        df = df.rename(columns={cycle_columns[0]: 'CycleID'})
                         available_columns = [col for col in required_columns if col in df.columns]
                 
                 if len(available_columns) == 2:

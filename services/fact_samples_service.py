@@ -10,14 +10,23 @@ class FactSamplesService:
         If source_tables is None, automatically discover ALL tables with TimeString
         """
         self.db_service = db_service
-        self.source_tables = self._get_all_tables_with_timestring()
+        self.excluded_tables = {
+           # "LOTE_SUMMARY",
+            "FactSamples",
+            "Cycle_Events"   # 🚫 Explicitly exclude cycle events table
+        }
+
+        # Use provided list or auto-discover
+        self.source_tables = source_tables or self._get_all_tables_with_timestring()
+
         self.lote_table = "LOTE_DATA"
         self.summary_table = "LOTE_SUMMARY"
         print(f"📊 Found {len(self.source_tables)} tables for FactSamples ETL")
 
     def _get_all_tables_with_timestring(self) -> List[str]:
-        """Get ALL tables that have a TimeString column, regardless of analysis selection"""
-        return self.db_service.get_tables_with_timestring()
+        """Get ALL tables that have a TimeString column, excluding cycle + warehouse tables"""
+        tables = self.db_service.get_tables_with_timestring()
+        return [t for t in tables if t not in self.excluded_tables]
 
     def create_schema(self) -> bool:
         """Create FactSamples table with proper SQL Server syntax"""

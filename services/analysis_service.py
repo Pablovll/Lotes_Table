@@ -5,6 +5,7 @@ import pandas as pd
 import numpy as np  # Add this import
 from datetime import datetime, timedelta  # Add this import
 from typing import Dict
+from infrastructure.database import DatabaseConnection
 from services.timestring_recovery_service import TimeStringRecoveryService
 #from services.format_preservation_service import FormatPreservationService
 import json
@@ -20,7 +21,8 @@ class AnalysisService:
         self.analysis_results = {}
         self.time_matched = False
     
-    def analyze_tables(self, table_data: dict, recovery_strategy: str = "auto") -> dict:
+    def analyze_tables(self, table_data: dict, recovery_strategy: str = "auto", 
+                  generate_events: bool = True, db_connection=None) -> dict:
         self.analysis_results = {}
         
         # First, analyze and recover TimeString data if needed
@@ -176,7 +178,9 @@ class AnalysisService:
                 )
                 self.analysis_results[table_name] = error_result
                 print(f"Error analyzing table {table_name}: {e}")
-        
+        if generate_events and db_connection:
+            self.generate_cycle_events(table_data, db_connection)
+    
         return self.analysis_results
     
     def generate_lotedata_summary(self, reference_table_name: str) -> pd.DataFrame:
@@ -402,3 +406,65 @@ class AnalysisService:
             'LOTE_SUMMARY': lote_summary_df,
             'LOTE_DATA': lote_data_df
         }
+    
+    def generate_cycle_events(self, reference_table_name: str, reference_df: pd.DataFrame, db: 'DatabaseConnection'):
+        """
+        Generate Cycle_Events table with:
+        Event_id, TimeString, Duration (hh:mm:ss), CycleID
+        """
+        if reference_table_name not in self.analysis_results:
+            raise ValueError("Reference table not analyzed")
+
+        result = self.analysis_results[reference_table_name]
+        if result.error_message:
+            raise ValueError(f"Cannot generate Cycle_Events: {result.error_message}")
+        if not result.cycles:
+            raise ValueError("No cycles found in reference table")
+
+        df = reference_df.copy()
+        time_series = self.analyzer.parse_time_string(df[self.config.time_column])
+        valid_mask = time_series.notna()
+        df = df[valid_mask]
+        time_series = time_series[valid_mask].sort_values().reset_index(drop=True)
+        df = df.loc[time_series.index]
+
+        # Assign CycleID from cycles
+        df['CycleID'] = 0
+        for cycle in result.cycles:
+            mask = (time_series >= cycle.start_time) & (time_series <= cycle.end_time)
+            df.loc[mask, 'CycleID'] = cycle.cycle_id
+
+        # Compute Δt in minutes
+        df['Duration_min'] = time_series.diff().shift(-1).dt.total_seconds().div(60)
+
+        # Apply filter: Δt ≠ expected AND Δt < threshold
+        expected = self.config.expected_frequency_minutes
+        threshold = self.config.time_threshold_minutes
+        mask = (df['Duration_min'].round(3) != expected) & (df['Duration_min'] < threshold)
+
+        events_df = df.loc[mask, [self.config.time_column, 'Duration_min', 'CycleID']].copy()
+
+        # Convert Duration to hh:mm:ss
+        def format_hms(minutes):
+            if pd.isna(minutes):
+                return None
+            seconds = int(minutes * 60)
+            h, rem = divmod(seconds, 3600)
+            m, s = divmod(rem, 60)
+            return f"{h:02d}:{m:02d}:{s:02d}"
+
+        events_df['Duration'] = events_df['Duration_min'].apply(format_hms)
+        events_df.drop(columns=['Duration_min'], inplace=True)
+
+        # Auto-increment Event_id
+        events_df = events_df.reset_index(drop=True)
+        events_df.insert(0, "Event_id", events_df.index + 1)
+
+        # Persist to DB
+        success = db.create_lotedata_table(events_df, table_name="Cycle_Events")
+        if success:
+            print(f"✅ Cycle_Events table created with {len(events_df)} events")
+        else:
+            print("⚠️ Failed to create Cycle_Events table")
+
+        return events_df

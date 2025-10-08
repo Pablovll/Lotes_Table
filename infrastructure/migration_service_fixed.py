@@ -8,7 +8,7 @@ from core.interfaces import IMigrationService
 class MigrationService(IMigrationService):
     def __init__(self, db_connection):
         self.db_connection = db_connection
-        self.excluded_tables = {"LOTE_DATA", "LOTE_SUMMARY", "FactSamples"}
+        self.excluded_tables = {"LOTE_DATA", "LOTE_SUMMARY", "FactSamples", "Cycle_Events"}
     
     def get_tables_with_timestring(self) -> List[str]:
         """Get all tables that have a TimeString column"""
